@@ -2,106 +2,119 @@ package tus
 
 import (
 	"bytes"
-	"encoding/base64"
-	"fmt"
-	"io"
-	"os"
-	"strings"
 )
 
-type Metadata map[string]string
-
-type Upload struct {
-	stream io.ReadSeeker
-	size   int64
-	offset int64
-
-	Fingerprint string
-	Metadata    Metadata
+type Uploader struct {
+	client     *Client
+	url        string
+	upload     *Upload
+	offset     int64
+	aborted    bool
+	uploadSubs []chan Upload
+	notifyChan chan bool
 }
 
-// Updates the Upload information based on offset.
-func (u *Upload) updateProgress(offset int64) {
-	u.offset = offset
+// Subscribes to progress updates.
+func (u *Uploader) NotifyUploadProgress(c chan Upload) {
+	u.uploadSubs = append(u.uploadSubs, c)
 }
 
-// Returns whether this upload is finished or not.
-func (u *Upload) Finished() bool {
-	return u.offset >= u.size
+// Abort aborts the upload process.
+// It doens't abort the current chunck, only the remaining.
+func (u *Uploader) Abort() {
+	u.aborted = true
 }
 
-// Returns the progress in a percentage.
-func (u *Upload) Progress() int64 {
-	return (u.offset * 100) / u.size
+// IsAborted returns true if the upload was aborted.
+func (u *Uploader) IsAborted() bool {
+	return u.aborted
 }
 
-// Returns the current upload offset.
-func (u *Upload) Offset() int64 {
+// Url returns the upload url.
+func (u *Uploader) Url() string {
+	return u.url
+}
+
+// Offset returns the current offset uploaded.
+func (u *Uploader) Offset() int64 {
 	return u.offset
 }
 
-// Returns the size of the upload body.
-func (u *Upload) Size() int64 {
-	return u.size
+// SetOffset sets the offset to the specified value.
+func (u *Uploader) SetOffset(offset int64) {
+	u.offset = offset
 }
 
-// EncodedMetadata encodes the upload metadata.
-func (u *Upload) EncodedMetadata() string {
-	var encoded []string
+// Upload uploads the entire body to the server.
+func (u *Uploader) Upload() error {
+	for u.offset < u.upload.size && !u.aborted {
+		err := u.UploadChunck()
 
-	for k, v := range u.Metadata {
-		encoded = append(encoded, fmt.Sprintf("%s %s", k, b64encode(v)))
+		if err != nil {
+			return err
+		}
 	}
 
-	return strings.Join(encoded, ",")
+	return nil
 }
 
-// NewUploadFromFile creates a new Upload from an os.File.
-func NewUploadFromFile(f *os.File) (*Upload, error) {
-	fi, err := f.Stat()
+// UploadChunck uploads a single chunck.
+func (u *Uploader) UploadChunck() error {
+	data := make([]byte, u.client.Config.ChunkSize)
+
+	_, err := u.upload.stream.Seek(u.offset, 0)
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	metadata := map[string]string{
-		"filename": fi.Name(),
+	size, err := u.upload.stream.Read(data)
+
+	if err != nil {
+		return err
 	}
 
-	fingerprint := fmt.Sprintf("%s-%d-%s", fi.Name(), fi.Size(), fi.ModTime())
+	body := bytes.NewBuffer(data[:size])
 
-	return NewUpload(f, fi.Size(), metadata, fingerprint), nil
+	newOffset, err := u.client.uploadChunck(u.url, body, int64(size), u.offset)
+
+	if err != nil {
+		return err
+	}
+
+	u.offset = newOffset
+
+	u.upload.updateProgress(u.offset)
+
+	u.notifyChan <- true
+
+	return nil
 }
 
-// NewUploadFromBytes creates a new upload from a byte array.
-func NewUploadFromBytes(b []byte) *Upload {
-	buffer := bytes.NewReader(b)
-	return NewUpload(buffer, buffer.Size(), nil, "")
-}
-
-// NewUpload creates a new upload from an io.Reader.
-func NewUpload(reader io.Reader, size int64, metadata Metadata, fingerprint string) *Upload {
-	stream, ok := reader.(io.ReadSeeker)
-
-	if !ok {
-		buf := new(bytes.Buffer)
-		buf.ReadFrom(reader)
-		stream = bytes.NewReader(buf.Bytes())
-	}
-
-	if metadata == nil {
-		metadata = make(Metadata)
-	}
-
-	return &Upload{
-		stream: stream,
-		size:   size,
-
-		Fingerprint: fingerprint,
-		Metadata:    metadata,
+// Waits for a signal to broadcast to all subscribers
+func (u *Uploader) broadcastProgress() {
+	for _ = range u.notifyChan {
+		for _, c := range u.uploadSubs {
+			c <- *u.upload
+		}
 	}
 }
 
-func b64encode(s string) string {
-	return base64.StdEncoding.EncodeToString([]byte(s))
+// NewUploader creates a new Uploader.
+func NewUploader(client *Client, url string, upload *Upload, offset int64) *Uploader {
+	notifyChan := make(chan bool)
+
+	uploader := &Uploader{
+		client,
+		url,
+		upload,
+		offset,
+		false,
+		nil,
+		notifyChan,
+	}
+
+	go uploader.broadcastProgress()
+
+	return uploader
 }
