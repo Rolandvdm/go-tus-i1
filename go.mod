@@ -1,4 +1,4 @@
-module github.com/eventials/go-tus
+module github.com/Rolandvdm/go-tus-i1
 
 go 1.13
 

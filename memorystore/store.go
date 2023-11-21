@@ -1,7 +1,7 @@
 package memorystore
 
 import (
-	"github.com/eventials/go-tus"
+	"github.com/Rolandvdm/go-tus-i1"
 )
 
 // MemoryStore implements an in-memory Store.

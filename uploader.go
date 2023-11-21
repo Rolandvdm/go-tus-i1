@@ -40,6 +40,11 @@ func (u *Uploader) Offset() int64 {
 	return u.offset
 }
 
+// SetOffset sets the offset to the specified value.
+func (u *Uploader) SetOffset(offset int64) {
+	u.offset = offset
+}
+
 // Upload uploads the entire body to the server.
 func (u *Uploader) Upload() error {
 	for u.offset < u.upload.size && !u.aborted {
