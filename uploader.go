@@ -35,8 +35,9 @@ func (u *Uploader) Url() string {
 	return u.url
 }
 
-func (u *Uploader) SetUrl(url string) string {
+func (u *Uploader) SetUrl(url string) {
 	u.url = url
+}
 
 // Offset returns the current offset uploaded.
 func (u *Uploader) Offset() int64 {

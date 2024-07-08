@@ -81,6 +81,7 @@ func (c *Client) CreateUpload(u *Upload) (*Uploader, error) {
 	req.Header.Set("Content-Length", "0")
 	req.Header.Set("Upload-Length", strconv.FormatInt(u.size, 10))
 	req.Header.Set("Upload-Metadata", u.EncodedMetadata())
+	req.Header.Set("Accept", "application/octet-stream")
 
 	res, err := c.Do(req)
 
@@ -188,6 +189,7 @@ func (c *Client) uploadChunck(url string, body io.Reader, size int64, offset int
 	req.Header.Set("Content-Type", "application/offset+octet-stream")
 	req.Header.Set("Content-Length", strconv.FormatInt(size, 10))
 	req.Header.Set("Upload-Offset", strconv.FormatInt(offset, 10))
+	req.Header.Set("Accept", "application/json, application/xml;q=0.9, text/plain;q=0.8")
 
 	if c.Config.OverridePatchMethod {
 		req.Header.Set("X-HTTP-Method-Override", "PATCH")
